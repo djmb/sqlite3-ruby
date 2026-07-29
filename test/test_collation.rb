@@ -33,6 +33,15 @@ module SQLite3
       assert_equal 1, comparator.calls.length
     end
 
+    def test_collation_does_not_use_moved_comparator_after_gc_compaction
+      @db.collation "foo", Comparator.new
+
+      skip("GC compaction is unsupported on this runtime") unless force_gc_compaction
+
+      @db.execute("select data from ex order by 1 collate foo")
+      assert_equal 1, @db.collations["foo"].calls.length
+    end
+
     def test_remove_collation
       comparator = Comparator.new
 

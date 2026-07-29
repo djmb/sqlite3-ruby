@@ -10,6 +10,11 @@
 struct _sqlite3Ruby {
     sqlite3 *db;
     VALUE busy_handler;
+    VALUE functions;
+    VALUE collations;
+    VALUE aggregators;
+    VALUE trace_handler;
+    VALUE authorizer;
     int stmt_timeout;
     struct timespec stmt_deadline;
     rb_pid_t owner;

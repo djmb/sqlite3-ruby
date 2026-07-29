@@ -254,8 +254,23 @@ rb_sqlite3_define_aggregator2(VALUE self, VALUE aggregator, VALUE ruby_name)
     CHECK(ctx->db, status);
 
     rb_ary_push(aggregators, aw);
+    RB_OBJ_WRITE(self, &ctx->aggregators, aggregators);
 
     return self;
+}
+
+void
+rb_sqlite3_aggregator_pin_instances(VALUE aw)
+{
+    VALUE instances = rb_iv_get(aw, "-instances");
+    long i;
+
+    if (NIL_P(instances) || !instances) { return; }
+
+    rb_gc_mark(instances);
+    for (i = 0; i < RARRAY_LEN(instances); i++) {
+        rb_gc_mark(RARRAY_AREF(instances, i));
+    }
 }
 
 void
