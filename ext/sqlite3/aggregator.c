@@ -54,18 +54,18 @@ rb_sqlite3_protected_funcall(VALUE self, ID method, int argc, VALUE *params,
 static VALUE
 rb_sqlite3_aggregate_instance(sqlite3_context *ctx)
 {
-    VALUE aw = (VALUE) sqlite3_user_data(ctx);
+    sqlite3RubyCallback *aw_callback = (sqlite3RubyCallback *) sqlite3_user_data(ctx);
+    VALUE aw = aw_callback->value;
     VALUE handler_klass = rb_iv_get(aw, "-handler_klass");
     VALUE inst;
-    VALUE *inst_ptr = sqlite3_aggregate_context(ctx, (int)sizeof(VALUE));
+    sqlite3RubyCallback **inst_ptr =
+        sqlite3_aggregate_context(ctx, (int)sizeof(sqlite3RubyCallback *));
 
     if (!inst_ptr) {
         rb_fatal("SQLite is out-of-memory");
     }
 
-    inst = *inst_ptr;
-
-    if (inst == Qfalse) { /* Qfalse == 0 */
+    if (!*inst_ptr) {
         VALUE instances = rb_iv_get(aw, "-instances");
         int exc_status;
 
@@ -76,8 +76,10 @@ rb_sqlite3_aggregate_instance(sqlite3_context *ctx)
 
         rb_ary_push(instances, inst);
 
-        *inst_ptr = inst;
+        *inst_ptr = rb_sqlite3_callback_new(aw_callback->db, inst);
     }
+
+    inst = (*inst_ptr)->value;
 
     if (inst == Qnil) {
         rb_fatal("SQLite called us back on an already destroyed aggregate instance");
@@ -92,14 +94,16 @@ rb_sqlite3_aggregate_instance(sqlite3_context *ctx)
 static void
 rb_sqlite3_aggregate_instance_destroy(sqlite3_context *ctx)
 {
-    VALUE aw = (VALUE) sqlite3_user_data(ctx);
+    VALUE aw = ((sqlite3RubyCallback *) sqlite3_user_data(ctx))->value;
     VALUE instances = rb_iv_get(aw, "-instances");
-    VALUE *inst_ptr = sqlite3_aggregate_context(ctx, 0);
+    sqlite3RubyCallback **inst_ptr = sqlite3_aggregate_context(ctx, 0);
     VALUE inst;
 
-    if (!inst_ptr || !(inst = *inst_ptr)) {
+    if (!inst_ptr || !*inst_ptr) {
         return;
     }
+
+    inst = (*inst_ptr)->value;
 
     if (inst == Qnil) {
         rb_fatal("attempt to destroy aggregate instance twice");
@@ -110,7 +114,8 @@ rb_sqlite3_aggregate_instance_destroy(sqlite3_context *ctx)
         rb_fatal("must be in instances at that point");
     }
 
-    *inst_ptr = Qnil;
+    rb_sqlite3_callback_free(*inst_ptr);
+    *inst_ptr = NULL;
 }
 
 static void
@@ -245,7 +250,7 @@ rb_sqlite3_define_aggregator2(VALUE self, VALUE aggregator, VALUE ruby_name)
                  StringValueCStr(ruby_name),
                  arity,
                  SQLITE_UTF8,
-                 (void *)aw,
+                 (void *)rb_sqlite3_callback_new(ctx, aw),
                  NULL,
                  rb_sqlite3_aggregator_step,
                  rb_sqlite3_aggregator_final
@@ -254,23 +259,8 @@ rb_sqlite3_define_aggregator2(VALUE self, VALUE aggregator, VALUE ruby_name)
     CHECK(ctx->db, status);
 
     rb_ary_push(aggregators, aw);
-    RB_OBJ_WRITE(self, &ctx->aggregators, aggregators);
 
     return self;
-}
-
-void
-rb_sqlite3_aggregator_pin_instances(VALUE aw)
-{
-    VALUE instances = rb_iv_get(aw, "-instances");
-    long i;
-
-    if (NIL_P(instances) || !instances) { return; }
-
-    rb_gc_mark(instances);
-    for (i = 0; i < RARRAY_LEN(instances); i++) {
-        rb_gc_mark(RARRAY_AREF(instances, i));
-    }
 }
 
 void
